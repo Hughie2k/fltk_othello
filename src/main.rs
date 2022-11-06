@@ -10,7 +10,13 @@ use fltk::{
     window::Window,
 };
 use othello::{board::*, evaluation};
-use std::{borrow::Borrow, boxed::Box, cell::Cell, rc::Rc, sync::Arc, thread};
+use std::{
+    borrow::Borrow,
+    cell::Cell,
+    rc::Rc,
+    sync::{mpsc, Arc, Mutex},
+    thread,
+};
 
 const SIDE_LEN: i32 = 500;
 
@@ -62,7 +68,8 @@ fn draw_board(x: i32, y: i32, side_len: i32, piece_radius: i32, board: &Board) {
 }
 
 fn main() {
-    let board = Arc::new(Cell::new(Board::default()));
+    let (tx, rx) = mpsc::channel::<u64>();
+    let board = Arc::new(Mutex::new(Board::default()));
     let app = app::App::default();
     let mut wind = Window::new(700, 400, 600, 600, "HI:)");
     let mut frame = Frame::new(50, 50, SIDE_LEN, SIDE_LEN, "title");
@@ -76,39 +83,46 @@ fn main() {
         let surf = surf.clone();
         move |fr| {
             ImageSurface::push_current(&surf);
-            draw_board(0, 0, SIDE_LEN, piece_radius.get(), &(*board).get());
+            draw_board(0, 0, SIDE_LEN, piece_radius.get(), &board.lock().unwrap());
             ImageSurface::pop_current();
             surf.image().unwrap().draw(fr.x(), fr.y(), fr.w(), fr.h());
             dbg!("{}", piece_radius.get());
         }
     });
     frame.handle({
+        let tx = tx.clone();
         let board = board.clone();
         move |frame, event| match event {
             Event::Push => {
-                if event_button() == 1 && human_black.get() == board.get().black_moving {
+                let mut board = board.lock().unwrap().clone();
+                if event_button() == 1 && human_black.get() == board.black_moving {
                     let (x, y) = event_coords();
                     let (x, y) = (
                         8 * (x - frame.x()) / SIDE_LEN,
                         8 * (y - frame.y()) / SIDE_LEN,
                     );
-                    let move_bit = 1 << (8 * x + y);
-                    let mut changed_board = (*board).get();
-                    match changed_board.safe_make_move(move_bit) {
-                        Ok(_) => println!("Move worked"),
-                        Err(_) => println!("Move didn't work"),
-                    };
-                    board.set(changed_board);
-                    println!("x, y = {x}, {y}");
-                    println!("{:?}", (*board).borrow());
-                    frame.redraw();
-                    while board.get().black_moving != human_black.get() {
-                        let move_bit =
-                            evaluation::best_move(evaluation::better_eval, &board.get(), 6);
-                        let mut board_clone = board.get();
-                        board_clone.make_move(move_bit);
-                        board.set(board_clone);
-                    }
+                    let move_bit = 1 << (8 * x + y); // TODO: Make sure (8 * x + y) < 64
+                    tx.send(move_bit);
+                    board.safe_make_move(move_bit);
+                    // board.safe_make_move(move_bit);
+                    // println!("x, y = {x}, {y}");
+                    // println!("{:?}", (*board).borrow());
+                    // frame.redraw();
+
+                    thread::spawn({
+                        let mut board = board.clone();
+                        let human_black = human_black.get();
+                        let tx = tx.clone();
+                        move || {
+                            while board.black_moving != human_black {
+                                let move_bit =
+                                    evaluation::best_move(evaluation::better_eval, &board, 9);
+                                tx.send(move_bit).expect("Failed send");
+                                board.make_move(move_bit);
+                            }
+                        }
+                    });
+                    // This part should be transferred out of the main thread. We must not lock the mutex in that thread because that thread could take a while to finish
                     // let (tx, rx) = std::sync::mpsc::channel::<u64>();
                     // let rx = Rc::new(rx);
                     // thread::spawn({
@@ -129,12 +143,25 @@ fn main() {
             _ => false,
         }
     });
+    let frame = Arc::new(Mutex::new(frame));
     let mut button = Button::new(200, 560, 200, 30, "Change piece size");
     let piece_radius = piece_radius.clone();
-    button.set_callback(move |_but| {
-        piece_radius.set(30 - piece_radius.get());
-        dbg!(piece_radius.get());
-        frame.redraw();
+    button.set_callback({
+        let frame = frame.clone();
+        move |_but| {
+            piece_radius.set(30 - piece_radius.get());
+            dbg!(piece_radius.get());
+            frame.lock().unwrap().redraw();
+        }
+    });
+    thread::spawn({
+        let frame = frame.clone();
+        let board = board.clone();
+        move || loop {
+            let move_bit = rx.recv().unwrap();
+            board.lock().unwrap().safe_make_move(move_bit);
+            frame.lock().unwrap().redraw();
+        }
     });
     wind.end();
     wind.show();
