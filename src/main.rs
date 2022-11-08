@@ -5,6 +5,7 @@ use fltk::{
     draw,
     enums::{Color, Event},
     frame::Frame,
+    output::Output,
     prelude::*,
     surface::ImageSurface,
     window::Window,
@@ -114,29 +115,14 @@ fn main() {
                         let human_black = human_black.get();
                         let tx = tx.clone();
                         move || {
-                            while board.black_moving != human_black {
+                            while board.black_moving != human_black || true {
                                 let move_bit =
-                                    evaluation::best_move(evaluation::better_eval, &board, 9);
+                                    evaluation::best_move(evaluation::better_eval, &board, 6);
                                 tx.send(move_bit).expect("Failed send");
                                 board.make_move(move_bit);
                             }
                         }
                     });
-                    // This part should be transferred out of the main thread. We must not lock the mutex in that thread because that thread could take a while to finish
-                    // let (tx, rx) = std::sync::mpsc::channel::<u64>();
-                    // let rx = Rc::new(rx);
-                    // thread::spawn({
-                    //     let mut board = board.get();
-                    //     let human_black = human_black.get();
-                    //     move || {
-                    //         while board.black_moving != human_black {
-                    //             let move_bit =
-                    //                 evaluation::best_move(evaluation::better_eval, &board, 6);
-                    //             tx.send(move_bit).expect("Failed to send");
-                    //             board.make_move(move_bit);
-                    //         }
-                    //     }
-                    // });
                 };
                 true
             }
@@ -160,6 +146,7 @@ fn main() {
         move || loop {
             let move_bit = rx.recv().unwrap();
             board.lock().unwrap().safe_make_move(move_bit);
+            app::awake();
             frame.lock().unwrap().redraw();
         }
     });
