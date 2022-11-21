@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fltk = "1.3.19"
-othello = { path = "../othello" }
+fltk = "1.3.20"
+othello = { git = "https://github.com/Hughie2k/othello"}
 no_deadlocks = "1.3.0"
+directories = "4.0.1"

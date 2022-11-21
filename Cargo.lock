@@ -425,6 +425,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "directories"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f51c5d4ddabd36886dd3e1438cb358cdcb0d7c499cb99cb4ac2e38e18b5cb210"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
+dependencies = [
+ "libc",
+ "redox_users",
+ "winapi",
+]
+
+[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -579,9 +599,9 @@ dependencies = [
 
 [[package]]
 name = "fltk"
-version = "1.3.19"
+version = "1.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15f33ddcced14e40e8d717fe2da1e4703f20062301b8977d176628bf5eba4b2e"
+checksum = "b7e3fd5db451d70fcd18b8734ba59d8ff0dc1135d45792f24fcfc4f5712979a1"
 dependencies = [
  "bitflags",
  "crossbeam-channel",
@@ -592,9 +612,9 @@ dependencies = [
 
 [[package]]
 name = "fltk-sys"
-version = "1.3.19"
+version = "1.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c85a1067521a3be81ec93693053542e819a68c2df8ef917238e25b4ed2815b7e"
+checksum = "03a86c6b068291a567adc4dcfa12cfcf51b5949634b763d6ba754cac1cd21107"
 dependencies = [
  "cmake",
 ]
@@ -603,6 +623,7 @@ dependencies = [
 name = "fltk_othello"
 version = "0.1.0"
 dependencies = [
+ "directories",
  "fltk",
  "no_deadlocks",
  "othello",
@@ -1296,6 +1317,7 @@ dependencies = [
 [[package]]
 name = "othello"
 version = "0.1.0"
+source = "git+https://github.com/Hughie2k/othello#43d293b322cf6400fda5e1da782bb7f683e25753"
 dependencies = [
  "colored",
  "eframe",
@@ -1471,6 +1493,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "redox_users"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b033d837a7cf162d7993aded9304e30a83213c648b6e389db233191f891e5c2b"
+dependencies = [
+ "getrandom 0.2.8",
+ "redox_syscall",
+ "thiserror",
 ]
 
 [[package]]

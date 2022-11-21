@@ -1,16 +1,17 @@
 pub mod play {
     use fltk::{
         self,
-        app::{self, event_button, event_coords, flush},
-        button::{Button, RadioButton, RadioRoundButton},
+        app::{self, event_button, event_coords},
+        button::{Button, RadioRoundButton},
         draw,
         enums::{Color, Event, FrameType},
         frame::Frame,
         group,
+        group::ColorChooser,
+        menu::Choice,
         output::Output,
         prelude::*,
         surface::ImageSurface,
-        text::TextDisplay,
         window::Window,
     };
     // use no_deadlocks::Mutex; // This can be interchanged with `std::sync::Mutex`, but is useful for debugging deadlocks
@@ -18,20 +19,47 @@ pub mod play {
     use othello::{board::*, evaluation};
     use std::{
         cell::Cell,
-        collections::HashMap,
-        hash::Hash,
+        rc::Rc,
         sync::{mpsc, Arc /*Mutex*/},
-        thread, time,
+        thread,
     };
 
     const SIDE_LEN: i32 = 500;
 
-    fn draw_board(x: i32, y: i32, side_len: i32, piece_radius: i32, board: &Board) {
+    #[derive(Copy, Clone, Debug)]
+    pub struct Colorscheme {
+        board: (Color, Color),
+        black: Color,
+        white: Color,
+        black_move: Color,
+        white_move: Color,
+    }
+
+    impl Default for Colorscheme {
+        fn default() -> Self {
+            Colorscheme {
+                board: (Color::from_hex(0x3a911au32), Color::from_hex(0x4ba30bu32)),
+                black: Color::Black,
+                white: Color::White,
+                black_move: Color::from_hex(0x3f9e9bu32),
+                white_move: Color::from_hex(0x3f9e9bu32),
+            }
+        }
+    }
+
+    fn draw_board(
+        x: i32,
+        y: i32,
+        side_len: i32,
+        piece_radius: i32,
+        board: &Board,
+        colorscheme: Colorscheme,
+    ) {
         let moves = board.each_move();
         let sqsize = side_len / 8;
-        let (moving_colour, waiting_colour) = match board.black_moving {
-            true => (Color::Black, Color::White),
-            false => (Color::White, Color::Black),
+        let (moving_colour, waiting_colour, move_colour) = match board.black_moving {
+            true => (colorscheme.black, colorscheme.white, colorscheme.black_move),
+            false => (colorscheme.white, colorscheme.black, colorscheme.white_move),
         };
 
         for i in 0..8 {
@@ -41,7 +69,11 @@ pub mod play {
                     j * sqsize + y,
                     sqsize,
                     sqsize,
-                    Color::from_hex(0x3a914au32 + ((i + j) as u32 % 2u32) * 0x111111u32),
+                    if (i + j) % 2 == 0 {
+                        colorscheme.board.0
+                    } else {
+                        colorscheme.board.1
+                    },
                 );
                 let cur_bit = 1 << (i * 8 + j);
 
@@ -54,8 +86,9 @@ pub mod play {
                 } else if board.waiting.bits & cur_bit != 0 {
                     waiting_colour
                 } else {
-                    Color::from_hex(0x3f9e9bu32)
+                    move_colour
                 });
+                // We have chosen the colour already, so now draw the circle
                 draw::draw_pie(
                     i * sqsize + sqsize / 2 - piece_radius + x,
                     j * sqsize + sqsize / 2 - piece_radius + y,
@@ -74,7 +107,7 @@ pub mod play {
         }
     }
 
-    pub fn main(app: app::App, human_black: bool) {
+    pub fn main(app: app::App, human_black: bool, depth: u8, colorscheme: Colorscheme) {
         let (tx, rx) = mpsc::channel::<u64>();
         let board = Arc::new(Mutex::new(Board::default()));
         //let app = app::App::default();
@@ -102,7 +135,14 @@ pub mod play {
             move |fr| {
                 ImageSurface::push_current(&surf);
                 dbg!("Frame locking board");
-                draw_board(0, 0, SIDE_LEN, piece_radius.get(), &board.lock().unwrap());
+                draw_board(
+                    0,
+                    0,
+                    SIDE_LEN,
+                    piece_radius.get(),
+                    &board.lock().unwrap(),
+                    colorscheme.clone(),
+                );
                 dbg!("Frame done with board");
                 ImageSurface::pop_current();
                 surf.image().unwrap().draw(fr.x(), fr.y(), fr.w(), fr.h());
@@ -190,7 +230,7 @@ pub mod play {
                             .zip([&mut blacks, &mut whites, &mut to_move])
                             .for_each(|(f, k)| f(k));
                         let move_bit =
-                            evaluation::best_move(evaluation::better_eval, &board_clone, 5);
+                            evaluation::best_move(evaluation::better_eval, &board_clone, depth);
                         board_clone.make_move(move_bit);
                         board.lock().unwrap().make_move(move_bit);
 
@@ -251,21 +291,94 @@ pub mod play {
 
     pub fn board_setup() {
         let app = app::App::default();
-        let mut wind = Window::new(300, 300, 500, 500, "heheheha");
+        let mut wind = Window::new(300, 300, 500, 800, "heheheha");
         let mut but = Button::new(100, 100, 300, 100, "MAKE A BOARD");
         let mut choices = group::Group::new(250, 300, 100, 50, Some("You play:"));
+        let colorscheme = Rc::new(Cell::new(Colorscheme::default()));
         choices.set_align(fltk::enums::Align::Left);
         choices.set_label_size(20);
         let mut choice = RadioRoundButton::new(250, 300, 100, 25, "Black");
         choice.toggle(true);
         choices.add(&choice);
         choices.add(&RadioRoundButton::new(250, 325, 100, 25, "White"));
+        choices.end();
+
+        let mut depth = Choice::new(150, 420, 200, 50, "Minimax depth");
+        (1..10).for_each(|n| depth.add_choice(&n.to_string()));
+        depth.set_value(4);
 
         but.set_callback({
             let app = app.clone();
-            move |_| main(app.clone(), choice.value())
+            let colorscheme = colorscheme.clone();
+            move |_| {
+                dbg!("got c");
+                main(
+                    app.clone(),
+                    choice.value(),
+                    depth.value() as u8 + 1u8,
+                    colorscheme.get(),
+                    //colourscheme_setup(app.clone()),
+                    //Colorscheme::default(),
+                );
+                dbg!("running main");
+                app::awake();
+                app::check();
+            }
         });
         but.set_color(Color::Green);
+
+        let mut colortrig = Button::new(100, 500, 300, 100, "Set colours");
+        colortrig.set_callback({
+            let app = app.clone();
+            let colorscheme = colorscheme.clone();
+            move |_| colourscheme_setup(app.clone(), colorscheme.clone())
+        });
+
+        wind.end();
+        wind.show();
+        app.run().unwrap();
+    }
+
+    fn colourscheme_setup(app: app::App, colorscheme: Rc<Cell<Colorscheme>>) {
+        let mut wind = Window::new(300, 300, 500, 800, "colours");
+        let mut boardcolours = (
+            ColorChooser::new(50, 50, 150, 150, "Board colour 1"),
+            ColorChooser::new(300, 50, 150, 150, "Board colour 2"),
+        );
+        let mut disccolours = (
+            ColorChooser::new(50, 300, 150, 150, "Black disc colour"),
+            ColorChooser::new(300, 300, 150, 150, "White disc colour"),
+        );
+        boardcolours
+            .0
+            .set_tuple_rgb(colorscheme.get().board.0.to_rgb());
+        boardcolours
+            .1
+            .set_tuple_rgb(colorscheme.get().board.1.to_rgb());
+        disccolours
+            .0
+            .set_tuple_rgb(colorscheme.get().black.to_rgb());
+        disccolours
+            .1
+            .set_tuple_rgb(colorscheme.get().white.to_rgb());
+
+        let mut apply = Button::new(100, 550, 300, 200, "APPLY");
+        apply.set_callback({
+            let colorscheme = colorscheme.clone();
+            move |_| {
+                let next = Colorscheme {
+                    board: (
+                        Color::from_hex(boardcolours.0.hex_color()),
+                        Color::from_hex(boardcolours.1.hex_color()),
+                    ),
+                    black: Color::from_hex(disccolours.0.hex_color()),
+                    white: Color::from_hex(disccolours.1.hex_color()),
+                    black_move: colorscheme.get().black_move,
+                    white_move: colorscheme.get().white_move,
+                };
+                colorscheme.set(next);
+            }
+        });
         wind.end();
         wind.show();
         app.run().unwrap();
