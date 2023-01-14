@@ -15,16 +15,16 @@ pub mod play {
         window::Window,
     };
     // use no_deadlocks::Mutex; // This can be interchanged with `std::sync::Mutex`, but is useful for debugging deadlocks
-    use no_deadlocks::Mutex;
+    // use no_deadlocks::Mutex;
     use othello::{board::*, evaluation};
     use std::{
         cell::Cell,
         rc::Rc,
-        sync::{mpsc, Arc /*Mutex*/},
+        sync::{mpsc, Arc, Mutex},
         thread,
     };
 
-    const SIDE_LEN: i32 = 500;
+    const SIDE_LEN: i32 = 800;
 
     #[derive(Copy, Clone, Debug)]
     pub struct Colorscheme {
@@ -111,30 +111,34 @@ pub mod play {
         let (tx, rx) = mpsc::channel::<u64>();
         let board = Arc::new(Mutex::new(Board::default()));
         //let app = app::App::default();
-        let mut wind = Window::new(700, 400, 600, 600, "HI:)");
+        let mut wind = Window::new(700, 40, 1000, 1000, "Othello");
 
-        let mut to_move = Output::new(250, 15, 100, 20, "");
+        let mut to_move = Output::new((wind.width() - 100) / 2, 15, 100, 20, "");
         to_move.set_frame(FrameType::FlatBox);
 
         let (mut blacks, mut whites) = (
-            Output::new(100, 15, 50, 20, "Blacks:"),
-            Output::new(450, 15, 50, 20, "Whites:"),
+            Output::new((wind.width() - 100) / 4, 15, 50, 20, "Blacks:"),
+            Output::new((wind.width() * 3 - 100) / 4, 15, 50, 20, "Whites:"),
         );
         blacks.set_frame(FrameType::FlatBox);
         whites.set_frame(FrameType::FlatBox);
 
-        let mut frame = Frame::new(50, 50, SIDE_LEN, SIDE_LEN, "title");
-        let human_black = Arc::new(human_black);
+        let mut frame = Frame::new(
+            (wind.width() - SIDE_LEN) / 2,
+            (wind.height() - SIDE_LEN) / 2,
+            SIDE_LEN,
+            SIDE_LEN,
+            "",
+        );
         frame.set_color(Color::Blue);
-        let piece_radius = Arc::new(Cell::new(20));
         let surf = Arc::new(ImageSurface::new(frame.width(), frame.height(), false));
+        let piece_radius = Rc::new(Cell::new(SIDE_LEN * 3 / 64));
         frame.draw({
             let piece_radius = piece_radius.clone();
             let board = board.clone();
             let surf = surf.clone();
             move |fr| {
                 ImageSurface::push_current(&surf);
-                dbg!("Frame locking board");
                 draw_board(
                     0,
                     0,
@@ -143,55 +147,46 @@ pub mod play {
                     &board.lock().unwrap(),
                     colorscheme.clone(),
                 );
-                dbg!("Frame done with board");
                 ImageSurface::pop_current();
                 surf.image().unwrap().draw(fr.x(), fr.y(), fr.w(), fr.h());
-                dbg!("{}", piece_radius.get());
             }
         });
         frame.handle({
-            let tx = tx.clone();
             let board = board.clone();
-            let human_black = human_black.clone();
             move |frame, event| match event {
                 Event::Push => {
-                    dbg!("Handling frame");
                     let board = board.lock().unwrap().clone();
-                    dbg!("locked board");
-                    if event_button() == 1 && *human_black == board.black_moving {
+                    if event_button() == 1 && human_black == board.black_moving {
                         let (x, y) = event_coords();
-                        dbg!("working");
                         let (x, y) = (
                             std::cmp::min(8 * (x - frame.x()) / SIDE_LEN, 7),
                             std::cmp::min(8 * (y - frame.y()) / SIDE_LEN, 7),
                         );
                         let move_bit = 1 << (8 * x + y);
                         tx.send(move_bit).expect("Reciever hung up");
-                        dbg!("sent move");
                     };
-                    dbg!("Returning true");
                     true
                 }
                 _ => false,
             }
         });
         let frame = Arc::new(Mutex::new(frame));
-        let mut button = Button::new(200, 560, 200, 30, "Change piece size");
-        let piece_radius = piece_radius.clone();
+        let mut button = Button::new(
+            wind.width() / 2 - 100,
+            SIDE_LEN + 30 + (*frame).lock().unwrap().y(),
+            200,
+            30,
+            "Change piece size",
+        );
         button.set_callback({
+            let piece_radius = piece_radius.clone();
             let frame = frame.clone();
             move |_but| {
-                piece_radius.set(30 - piece_radius.get());
-                dbg!(piece_radius.get());
-                dbg!("Button locking frame");
+                piece_radius.set(SIDE_LEN * 5 / 64 - piece_radius.get());
                 app::lock().expect("Locking unsupported");
                 let mut frame = frame.lock().unwrap();
-                dbg!("Button frame locked");
-                dbg!("Button frame redrawing");
-                //thread::sleep(time::Duration::from_millis(500));
                 frame.redraw();
                 app::unlock();
-                dbg!("Button frame redrawn");
                 drop(frame);
             }
         });
@@ -200,35 +195,51 @@ pub mod play {
             let frame = frame.clone();
             let board = board.clone();
             move || {
-                let mut updates: Vec<Box<dyn FnMut(&mut Output)>> = vec![
-                    Box::new(|whites| {
-                        whites.set_value(&match false || board.lock().unwrap().black_moving {
-                            true => board.lock().unwrap().waiting.count().to_string(),
-                            false => board.lock().unwrap().to_move.count().to_string(),
-                        });
-                    }),
-                    Box::new(|blacks| {
-                        blacks.set_value(&match false || board.lock().unwrap().black_moving {
-                            false => board.lock().unwrap().waiting.count().to_string(),
-                            true => board.lock().unwrap().to_move.count().to_string(),
-                        })
-                    }),
-                    Box::new(|to_move| {
-                        to_move.set_value(&match false || board.lock().unwrap().black_moving {
-                            true => "Black's turn",
-                            false => "White's turn",
-                        })
-                    }),
-                ];
+                // let mut updates: Vec<Box<dyn FnMut(&mut Output)>> = vec![
+                //     Box::new(|whites| {
+                //         whites.set_value(&match false || board.lock().unwrap().black_moving {
+                //             true => board.lock().unwrap().waiting.count().to_string(),
+                //             false => board.lock().unwrap().to_move.count().to_string(),
+                //         });
+                //     }),
+                //     Box::new(|blacks| {
+                //         blacks.set_value(&match false || board.lock().unwrap().black_moving {
+                //             false => board.lock().unwrap().waiting.count().to_string(),
+                //             true => board.lock().unwrap().to_move.count().to_string(),
+                //         })
+                //     }),
+                //     Box::new(|to_move| {
+                //         to_move.set_value(&match false || board.lock().unwrap().black_moving {
+                //             true => "Black's turn",
+                //             false => "White's turn",
+                //         })
+                //     }),
+                // ];
+                let update = |whites: &mut Output,
+                              blacks: &mut Output,
+                              to_move: &mut Output,
+                              board: &Board| match board.black_moving {
+                    true => {
+                        whites.set_value(&board.waiting.count().to_string());
+                        blacks.set_value(&board.to_move.count().to_string());
+                        to_move.set_value("Black's turn");
+                    }
+                    false => {
+                        blacks.set_value(&board.waiting.count().to_string());
+                        whites.set_value(&board.to_move.count().to_string());
+                        to_move.set_value("White's turn");
+                    }
+                };
                 loop {
                     let mut board_clone = board.lock().unwrap().clone();
-                    while board_clone.black_moving != *human_black
+                    while board_clone.black_moving != human_black
                         && board_clone.board_state == BoardState::Ongoing
                     {
-                        updates
-                            .iter_mut()
-                            .zip([&mut blacks, &mut whites, &mut to_move])
-                            .for_each(|(f, k)| f(k));
+                        // updates
+                        //     .iter_mut()
+                        //     .zip([&mut whites, &mut blacks, &mut to_move])
+                        //     .for_each(|(f, k)| f(k));
+                        update(&mut whites, &mut blacks, &mut to_move, &board_clone);
                         let move_bit =
                             evaluation::best_move(evaluation::better_eval, &board_clone, depth);
                         board_clone.make_move(move_bit);
@@ -238,27 +249,23 @@ pub mod play {
 
                         let mut frame = frame.lock().unwrap();
                         frame.redraw();
-                        updates
-                            .iter_mut()
-                            .zip([&mut blacks, &mut whites, &mut to_move])
-                            .for_each(|(f, k)| f(k));
+                        update(&mut whites, &mut blacks, &mut to_move, &board_clone);
+                        // updates
+                        //     .iter_mut()
+                        //     .zip([&mut whites, &mut blacks, &mut to_move])
+                        //     .for_each(|(f, k)| f(k));
                         app::unlock();
 
                         app::awake();
                     }
-                    updates
-                        .iter_mut()
-                        .zip([&mut blacks, &mut whites, &mut to_move])
-                        .for_each(|(f, k)| f(k));
+                    update(&mut whites, &mut blacks, &mut to_move, &board_clone);
+                    // updates
+                    //     .iter_mut()
+                    //     .zip([&mut blacks, &mut whites, &mut to_move])
+                    //     .for_each(|(f, k)| f(k));
                     let board_state = board.lock().unwrap().board_state;
                     match board_state {
                         BoardState::Ongoing => {
-                            match board.try_lock() {
-                                Ok(_) => dbg!("Mutex not locked"),
-                                Err(_) => dbg!("Mutex locked"),
-                            };
-
-                            dbg!("Waiting for move");
                             let move_bit = rx.recv().unwrap();
                             board.lock().unwrap().safe_make_move(move_bit);
                         }
@@ -311,7 +318,7 @@ pub mod play {
             let app = app.clone();
             let colorscheme = colorscheme.clone();
             move |_| {
-                dbg!("got c");
+                // dbg!("got c");
                 main(
                     app.clone(),
                     choice.value(),
@@ -320,7 +327,7 @@ pub mod play {
                     //colourscheme_setup(app.clone()),
                     //Colorscheme::default(),
                 );
-                dbg!("running main");
+                // dbg!("running main");
                 app::awake();
                 app::check();
             }
