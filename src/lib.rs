@@ -39,7 +39,7 @@ pub mod play {
         fn default() -> Self {
             Colorscheme {
                 board: (Color::from_hex(0x3a911au32), Color::from_hex(0x4ba30bu32)),
-                black: Color::Black,
+                black: Color::from_hex(0u32),
                 white: Color::White,
                 black_move: Color::from_hex(0x3f9e9bu32),
                 white_move: Color::from_hex(0x3f9e9bu32),
@@ -347,7 +347,7 @@ pub mod play {
     }
 
     fn colourscheme_setup(app: app::App, colorscheme: Rc<Cell<Colorscheme>>) {
-        let mut wind = Window::new(300, 300, 500, 800, "colours");
+        let mut wind = Window::new(300, 300, 500, 900, "colours");
         let mut boardcolours = (
             ColorChooser::new(50, 50, 150, 150, "Board colour 1"),
             ColorChooser::new(300, 50, 150, 150, "Board colour 2"),
@@ -355,6 +355,10 @@ pub mod play {
         let mut disccolours = (
             ColorChooser::new(50, 300, 150, 150, "Black disc colour"),
             ColorChooser::new(300, 300, 150, 150, "White disc colour"),
+        );
+        let mut movecolours = (
+            ColorChooser::new(50, 550, 150, 150, "Black's legal move colour"),
+            ColorChooser::new(300, 550, 150, 150, "White's legal move colour"),
         );
         boardcolours
             .0
@@ -368,8 +372,14 @@ pub mod play {
         disccolours
             .1
             .set_tuple_rgb(colorscheme.get().white.to_rgb());
+        movecolours
+            .0
+            .set_tuple_rgb(colorscheme.get().black_move.to_rgb());
+        movecolours
+            .1
+            .set_tuple_rgb(colorscheme.get().white_move.to_rgb());
 
-        let mut apply = Button::new(100, 550, 300, 200, "APPLY");
+        let mut apply = Button::new(100, 750, 200, 150, "APPLY");
         apply.set_callback({
             let colorscheme = colorscheme.clone();
             move |_| {
@@ -380,8 +390,8 @@ pub mod play {
                     ),
                     black: Color::from_hex(disccolours.0.hex_color()),
                     white: Color::from_hex(disccolours.1.hex_color()),
-                    black_move: colorscheme.get().black_move,
-                    white_move: colorscheme.get().white_move,
+                    black_move: Color::from_hex(movecolours.0.hex_color()),
+                    white_move: Color::from_hex(movecolours.1.hex_color()),
                 };
                 colorscheme.set(next);
             }
